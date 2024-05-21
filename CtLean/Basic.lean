@@ -45,71 +45,107 @@ inductive Transition [kdef: Konst N K]: CCS N K -> Act N -> CCS N K -> Prop
   (r: p = kdef.resolve k a h):
   Transition (.const k) a p
 
-def Outgoing [LTS P] (p: P) (a: LTS.Act P): Prop :=
+variable [LTS P] (p q: P)
+
+def Outgoing (a: LTS.Act P): Prop :=
   ∃p', LTS.transition p a p'
 
-def Simulate [LTS P] (p q: P) (map: P → P): Nat → Prop
+structure LTS.Edge (p: P) where
+  act: LTS.Act P
+  dest: P
+  prop: transition p act dest
+
+inductive LTS.Path: P → Type
+| nil (p: P): Path p
+| cons {p p': P} (ps: Path p) (e: Edge p) (h: e.dest = p'): Path p'
+
+def LTS.Path.orig: ∀(p: P), (LTS.Path p) → P
+| p, nil _ => p
+| _, cons ps _ _ => ps.orig
+
+def Simulate (p q: P) (map: ∀(p: P), LTS.Edge p → P → P): Nat → Prop
 | 0 => True
-| .succ n => ∀a, ∀{p': P}, LTS.transition p a p' →
-  (LTS.transition q a (map p') ∧ Simulate p' (map p') map n)
+| .succ n => ∀(e: LTS.Edge p),
+  (LTS.transition q e.act (map p e q) ∧ Simulate e.dest (map p e q) map n)
 
-structure Bisimulation [LTS P] (p q: P) where
-  left_sim: P → P
-  right_sim: P → P
-  bij_left: ∀p, left_sim (right_sim p) = p
-  bij_right: ∀p, right_sim (left_sim p) = p
-  coind_left: ∀n, Simulate p q left_sim n
-  coind_right: ∀n, Simulate q p right_sim n
+structure Bisimulation where
+  sim: ∀(p: P), LTS.Edge p → P → P
+  sym: ∀{a}, ∀{p p' q}, ∀t, ∀t', sim q ⟨a, sim p ⟨a, p', t⟩ q, t'⟩ p = p'
+  coind_l: ∀n, Simulate p q sim n
+  coind_r: ∀n, Simulate q p sim n
 
-def Bisimilar [LTS P] (p q: P) := Nonempty (Bisimulation p q)
+def Bisimilar := Nonempty (Bisimulation p q)
 
-structure BisimCond [LTS P] (p q: P): Prop where
-  left: ∀{a}, LTS.transition p a p' → ∃q', (LTS.transition q a q' ∧ Bisimilar p' q')
-  right: ∀{a}, LTS.transition q a q' → ∃p', (LTS.transition p a p' ∧ Bisimilar p' q')
+structure BisimCond: Prop where
+  left: LTS.transition p a p' → ∃q', (LTS.transition q a q' ∧ Bisimilar p' q')
+  right: LTS.transition q a q' → ∃p', (LTS.transition p a p' ∧ Bisimilar p' q')
 
-theorem show_cond [LTS P] (p q: P): Bisimilar p q → BisimCond p q := by
-  intro ⟨left_sim, right_sim, bij_left, bij_right, coind_left, coind_right⟩
+theorem show_cond: Bisimilar p q → BisimCond p q := by
+  intro ⟨sim, sym, coind_l, coind_r⟩
   constructor
-  . intro p' a t
-    exists (left_sim p')
+  . intro _ _ t
+    let e: LTS.Edge _ := ⟨_, _, t⟩
+    exists (sim p e q)
     constructor
-    . exact (coind_left 1 a t).left
-    . refine ⟨left_sim, right_sim, bij_left, bij_right, ?_, ?_⟩
-      intro n
-      refine (coind_left n.succ a t).right
-      intro n
-      have t' := (coind_left n.succ a t).left
-      have := bij_right _ ▸ (coind_right n.succ a t').right
-      refine this
-  . intro q' a t
-    exists (right_sim q')
+    . exact (coind_l 1 e).left
+    . refine ⟨sim, sym, ?_, ?_⟩
+      . intro n
+        refine (coind_l n.succ e).right
+      . intro n
+        let e': LTS.Edge _ := ⟨_, _, (coind_l n.succ e).left⟩
+        have := sym e.prop e'.prop ▸ (coind_r n.succ e').right
+        exact this
+  . intro _ _ t
+    let e: LTS.Edge _ := ⟨_, _, t⟩
+    exists (sim q e p)
     constructor
-    . exact (coind_right 1 a t).left
-    . refine ⟨left_sim, right_sim, bij_left, bij_right, ?_, ?_⟩
-      intro n
-      have t' := (coind_right n.succ a t).left
-      have := bij_left _ ▸ (coind_left n.succ a t').right
-      refine this
-      intro n
-      refine (coind_right n.succ a t).right
+    . exact (coind_r 1 e).left
+    . refine ⟨sim, sym, ?_, ?_⟩
+      . intro n
+        let e': LTS.Edge _ := ⟨_, _, (coind_r n.succ e).left⟩
+        have := sym e.prop e'.prop ▸ (coind_l n.succ e').right
+        exact this
+      . intro n
+        refine (coind_r n.succ e).right
 
-def SelfSim [LTS P] (p: P): Bisimulation p p where
-  left_sim := id
-  right_sim := id
-  bij_left _ := rfl
-  bij_right _ := rfl
-  coind_left n := by
+def SelfSim: Bisimulation p p where
+  sim p e _ := e.dest
+  sym _ _ := rfl
+  coind_l n := by
     induction n generalizing p with
     | zero => trivial
-    | succ n ih => refine fun _ _ t => ⟨t, ih _⟩
-  coind_right n := by
+    | succ n ih => refine fun ⟨_, _, prop⟩ => ⟨prop, ih _⟩
+  coind_r n := by
     induction n generalizing p with
     | zero => trivial
-    | succ n ih => refine fun _ _ t => ⟨t, ih _⟩
+    | succ n ih => refine fun ⟨_, _, prop⟩ => ⟨prop, ih _⟩
 
-theorem Bisimilar.refl [LTS P] (p: P): Bisimilar p p :=
+theorem Bisimilar.refl: Bisimilar p p :=
   ⟨SelfSim p⟩
 
 instance [Konst N K] : LTS (CCS N K) where
   Act := Act N
   transition := @Transition N K _
+
+noncomputable def sim [DecidableEq P] {p q: P} (h: BisimCond p q):
+  ∀(p': P), LTS.Edge p' → P → P := fun p ⟨a, p', t⟩ q =>
+    sorry
+
+theorem sim_edge [DecidableEq P]: (t: LTS.transition p a p') →
+  LTS.transition q a (sim h _ ⟨_, _, t⟩ q) :=
+  sorry
+
+theorem sim_cond [DecidableEq P] (h: BisimCond p q)
+  (lp: {ps: LTS.Path p' // ps.orig = p})
+  (rp: {qs: LTS.Path q' // qs.orig = q}):
+  ∀n, Simulate p' q' (sim h) n := by
+  intro n; cases n; trivial
+  case succ n' =>
+    intro e
+    constructor
+    . sorry
+
+    . apply sim_cond
+      . refine ⟨LTS.Path.cons lp.val e rfl, lp.property⟩
+      . let e' : LTS.Edge _ := ⟨_, _, sim_edge (h:=h) p' q' e.prop⟩
+        refine ⟨LTS.Path.cons rp.val e' rfl, rp.property⟩
