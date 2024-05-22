@@ -76,9 +76,46 @@ structure Bisimulation where
 
 def Bisimilar := Nonempty (Bisimulation p q)
 
+def SelfSim: Bisimulation p p where
+  sim p e _ := e.dest
+  sym _ _ := rfl
+  coind_l n := by
+    induction n generalizing p with
+    | zero => trivial
+    | succ n ih => refine fun ⟨_, _, prop⟩ => ⟨prop, ih _⟩
+  coind_r n := by
+    induction n generalizing p with
+    | zero => trivial
+    | succ n ih => refine fun ⟨_, _, prop⟩ => ⟨prop, ih _⟩
+
+theorem Bisimilar.refl: Bisimilar p p :=
+  ⟨SelfSim p⟩
+
+def InvSim (h: Bisimulation p q): Bisimulation q p where
+  sim := h.sim
+  sym := h.sym
+  coind_l := h.coind_r
+  coind_r := h.coind_l
+
+theorem Bisimilar.symm: Bisimilar p q → Bisimilar q p :=
+  fun ⟨h⟩ => ⟨InvSim _ _ h⟩
+
 structure BisimCond: Prop where
   left: LTS.transition p a p' → ∃q', (LTS.transition q a q' ∧ Bisimilar p' q')
   right: LTS.transition q a q' → ∃p', (LTS.transition p a p' ∧ Bisimilar p' q')
+
+theorem BisimCond.refl: BisimCond p p where
+  left t := ⟨_, ⟨t, Bisimilar.refl _⟩⟩
+  right t := ⟨_, ⟨t, Bisimilar.refl _⟩⟩
+
+theorem BisimCond.symm (h: BisimCond p q): BisimCond q p where
+  left t := by
+    have ⟨_, ⟨t', h'⟩⟩ := h.right t
+    refine ⟨_, ⟨t', h'.symm⟩⟩
+
+  right t := by
+    have ⟨_, ⟨t', h'⟩⟩ := h.left t
+    refine ⟨_, ⟨t', h'.symm⟩⟩
 
 theorem show_cond: Bisimilar p q → BisimCond p q := by
   intro ⟨sim, sym, coind_l, coind_r⟩
@@ -108,21 +145,6 @@ theorem show_cond: Bisimilar p q → BisimCond p q := by
       . intro n
         refine (coind_r n.succ e).right
 
-def SelfSim: Bisimulation p p where
-  sim p e _ := e.dest
-  sym _ _ := rfl
-  coind_l n := by
-    induction n generalizing p with
-    | zero => trivial
-    | succ n ih => refine fun ⟨_, _, prop⟩ => ⟨prop, ih _⟩
-  coind_r n := by
-    induction n generalizing p with
-    | zero => trivial
-    | succ n ih => refine fun ⟨_, _, prop⟩ => ⟨prop, ih _⟩
-
-theorem Bisimilar.refl: Bisimilar p p :=
-  ⟨SelfSim p⟩
-
 instance [Konst N K] : LTS (CCS N K) where
   Act := Act N
   transition := @Transition N K _
@@ -143,8 +165,7 @@ theorem sim_cond [DecidableEq P] (h: BisimCond p q)
   case succ n' =>
     intro e
     constructor
-    . sorry
-
+    . apply sim_edge
     . apply sim_cond
       . refine ⟨LTS.Path.cons lp.val e rfl, lp.property⟩
       . let e' : LTS.Edge _ := ⟨_, _, sim_edge (h:=h) p' q' e.prop⟩
