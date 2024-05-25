@@ -1,172 +1,165 @@
-
-inductive Act (names: Type) where
-| name (_: names)
-| coname (_: names)
-| tau
-
-inductive CCS (N: Type) (K: Type): Type
-| nil
-| pref (act: Act N) (p: CCS N K)
-| par (left: CCS N K) (right: CCS N K)
-| choice (left: CCS N K) (right: CCS N K)
-| abst (var: N) (p: CCS N K)
-| const (k: K)
-
-class Konst (N: Type) (K: Type) where
-  acts (k: K): Act N -> Prop
-  resolve (k: K): (a: Act N) → acts k a → CCS N K
-
-inductive Complementary: Act N → Act N → Prop
-| left: Complementary (.name n) (.coname n)
-| right: Complementary (.coname n) (.name n)
+theorem Or.symm: (a ∨ b) → (b ∨ a)
+| .inl h => .inr h
+| .inr h => .inl h
 
 class LTS (P: Type) where
   Act: Type
   transition: P → Act → P → Prop
-
-inductive Transition [kdef: Konst N K]: CCS N K -> Act N -> CCS N K -> Prop
-| Pre: Transition (.pref a p) a p
-| ParL (h: Transition p a p'): Transition (.par p q) a (.par p' q)
-| ParR (h: Transition q a q'): Transition (.par p q) a (.par p q')
-| Com
-  (l: Transition p a p')
-  (r: Transition q a' q')
-  (_: Complementary a a'):
-  Transition (.par p q) .tau (.par p' q')
-| SumL (h: Transition p a p'): Transition (.choice p q) a p'
-| SumR (h: Transition q a q'): Transition (.choice p q) a q'
-| Res
-  (h: Transition p a p')
-  (not_name: a ≠ .name n)
-  (not_coname: a ≠ .coname n):
-  Transition (.abst n p) a (.abst n q)
-| Rec
-  (h: kdef.acts k a)
-  (r: p = kdef.resolve k a h):
-  Transition (.const k) a p
 
 variable [LTS P] (p q: P)
 
 def Outgoing (a: LTS.Act P): Prop :=
   ∃p', LTS.transition p a p'
 
-structure LTS.Edge (p: P) where
-  act: LTS.Act P
-  dest: P
-  prop: transition p act dest
+def LeftSim (r: P → P → Prop): Prop :=
+  ∀{p p' q: P}, ∀ {a: LTS.Act P}, r p q →
+    LTS.transition p a p' → ∃q', LTS.transition q a q' ∧ r p' q'
 
-inductive LTS.Path: P → Type
-| nil (p: P): Path p
-| cons {p p': P} (ps: Path p) (e: Edge p) (h: e.dest = p'): Path p'
+def RightSim (r: P → P → Prop): Prop := LeftSim (λp q ↦ r q p)
 
-def LTS.Path.orig: ∀(p: P), (LTS.Path p) → P
-| p, nil _ => p
-| _, cons ps _ _ => ps.orig
+def Bisimulation (r: P → P → Prop) := LeftSim r ∧ RightSim r
 
-def Simulate (p q: P) (map: ∀(p: P), LTS.Edge p → P → P): Nat → Prop
-| 0 => True
-| .succ n => ∀(e: LTS.Edge p),
-  (LTS.transition q e.act (map p e q) ∧ Simulate e.dest (map p e q) map n)
+def Bisimilar := ∃(r: P → P → Prop), r p q ∧ Bisimulation r
 
-structure Bisimulation where
-  sim: ∀(p: P), LTS.Edge p → P → P
-  sym: ∀{a}, ∀{p p' q}, ∀t, ∀t', sim q ⟨a, sim p ⟨a, p', t⟩ q, t'⟩ p = p'
-  coind_l: ∀n, Simulate p q sim n
-  coind_r: ∀n, Simulate q p sim n
+def IdentityRelation: α → α → Prop := (λx y ↦ x = y)
 
-def Bisimilar := Nonempty (Bisimulation p q)
+theorem diag_l_sim: LeftSim (P:=P) IdentityRelation := by
+  intro _ p' _ _ h t
+  exists p'
+  refine ⟨?_, rfl⟩
+  exact h ▸ t
 
-def SelfSim: Bisimulation p p where
-  sim p e _ := e.dest
-  sym _ _ := rfl
-  coind_l n := by
-    induction n generalizing p with
-    | zero => trivial
-    | succ n ih => refine fun ⟨_, _, prop⟩ => ⟨prop, ih _⟩
-  coind_r n := by
-    induction n generalizing p with
-    | zero => trivial
-    | succ n ih => refine fun ⟨_, _, prop⟩ => ⟨prop, ih _⟩
+theorem diag_sim: Bisimulation (P:=P) IdentityRelation := by
+  refine ⟨diag_l_sim, ?_⟩
+  simp [RightSim, IdentityRelation]
+  conv => congr; intro p q; rw [Iff.intro Eq.symm Eq.symm]
+  exact diag_l_sim
 
-theorem Bisimilar.refl: Bisimilar p p :=
-  ⟨SelfSim p⟩
+theorem Bisimilar.refl: Bisimilar p p := by
+  exists IdentityRelation
+  refine ⟨rfl, diag_sim⟩
 
-def InvSim (h: Bisimulation p q): Bisimulation q p where
-  sim := h.sim
-  sym := h.sym
-  coind_l := h.coind_r
-  coind_r := h.coind_l
+def SymmetricClosure (r: α → α → Prop): α → α → Prop := fun x y => r x y ∨ r y x
+def SC (r: α → α → Prop): α → α → Prop := SymmetricClosure r
 
-theorem Bisimilar.symm: Bisimilar p q → Bisimilar q p :=
-  fun ⟨h⟩ => ⟨InvSim _ _ h⟩
+theorem symm_l_sim (orig: Bisimulation r): LeftSim (P:=P) (SC r) := by
+  intro p p' q _ h t
+  cases h
+  case inl h =>
+    have ⟨_, ⟨t', h'⟩⟩ := orig.left h t
+    refine ⟨_, ⟨t', .inl h'⟩⟩
+  case inr h =>
+    have ⟨_, ⟨t', h'⟩⟩ := orig.right h t
+    refine ⟨_, ⟨t', .inr h'⟩⟩
+
+theorem symm_r_sim (orig: Bisimulation r): RightSim (P:=P) (SC r) := by
+  simp [RightSim, SymmetricClosure]
+  conv =>
+    congr; intro p q;
+    delta SC SymmetricClosure;
+    rw [Iff.intro Or.symm Or.symm]
+  exact symm_l_sim orig
+
+theorem symm_sim: Bisimulation r → Bisimulation (P:=P) (SymmetricClosure r) :=
+  fun x => ⟨symm_l_sim x, symm_r_sim x⟩
+
+theorem Bisimilar.symm {p q: P}: Bisimilar p q → Bisimilar q p := by
+  intro ⟨r, ⟨h, t⟩⟩
+  exists SymmetricClosure r
+  refine ⟨.inr h, symm_sim t⟩
+
+theorem trans_l_sim (orig: LeftSim r): LeftSim (P:=P) (TC r) := by
+  intro p p' q a h t
+  induction h generalizing p'
+  case base h =>
+    have ⟨_, ⟨t', h'⟩⟩ := orig h t
+    refine ⟨_, ⟨t', .base _ _ h'⟩⟩
+  case trans H h =>
+    have ⟨_, ⟨t', h'⟩⟩ := H t
+    have ⟨q', ⟨t'', h''⟩⟩ := h t'
+    have := TC.trans _ _ _ h' h''
+    exists q'
+
+theorem trans_r_sim (orig: RightSim r): RightSim (P:=P) (TC r) := by
+  intro p p' q a h t
+  induction h generalizing p'
+  case base h =>
+    dsimp
+    have ⟨_, ⟨t', h'⟩⟩ := orig h t
+    refine ⟨_, ⟨t', .base _ _ h'⟩⟩
+  case trans H h =>
+    have ⟨_, ⟨t', h'⟩⟩ := h t
+    have ⟨q', ⟨t'', h''⟩⟩ := H t'
+    have := TC.trans _ _ _ h'' h'
+    exists q'
+
+theorem trans_sim (orig: Bisimulation r): Bisimulation (P:=P) (TC r) :=
+  ⟨trans_l_sim orig.left, trans_r_sim orig.right⟩
+
+def Union (r s: α → α → Prop): α → α → Prop := λx y ↦ r x y ∨ s x y
+
+theorem union_l_sim (a: LeftSim r) (b: LeftSim s):
+  LeftSim (P:=P) (Union r s) :=
+  fun h t => match h with
+  | .inl h => have ⟨_, ⟨_, _⟩⟩ := a h t; ⟨_, ⟨‹_›, .inl ‹_›⟩⟩
+  | .inr h => have ⟨_, ⟨_, _⟩⟩ := b h t; ⟨_, ⟨‹_›, .inr ‹_›⟩⟩
+
+theorem union_sim (a: Bisimulation r) (b: Bisimulation s): Bisimulation (P:=P) (Union r s) := by
+  refine ⟨union_l_sim a.left b.left, ?_⟩
+  apply union_l_sim a.right
+  exact b.right
+
+theorem Bisimilar.trans {a b c: P}: Bisimilar a b → Bisimilar b c → Bisimilar a c := by
+  intro ⟨r, ⟨h, _⟩⟩ ⟨s, ⟨h', _⟩⟩
+  exists TC (Union r s)
+  have x: TC (Union r s) a b := .base _ _ $ .inl h
+  have y: TC (Union r s) b c := .base _ _ $ .inr h'
+  refine ⟨.trans _ _ _ x y, trans_sim (union_sim ‹_› ‹_›)⟩
+
+instance [LTS P] : Equivalence (Bisimilar (P:=P)) where
+  refl := Bisimilar.refl
+  symm := Bisimilar.symm
+  trans := Bisimilar.trans
+
+theorem sim_bisim: Bisimulation (Bisimilar (P:=P)) where
+  left := by
+    intro p p' q a ⟨r, ⟨h, h'⟩⟩ t
+    have ⟨_, ⟨t', H⟩⟩ := h'.left h t
+    refine ⟨_, ⟨t', ?_⟩⟩
+    exists r
+  right := by
+    intro p p' q a ⟨r, ⟨h, h'⟩⟩ t
+    have ⟨_, ⟨t', H⟩⟩ := h'.right h t
+    refine ⟨_, ⟨t', ?_⟩⟩
+    exists r
 
 structure BisimCond: Prop where
   left: LTS.transition p a p' → ∃q', (LTS.transition q a q' ∧ Bisimilar p' q')
   right: LTS.transition q a q' → ∃p', (LTS.transition p a p' ∧ Bisimilar p' q')
 
-theorem BisimCond.refl: BisimCond p p where
-  left t := ⟨_, ⟨t, Bisimilar.refl _⟩⟩
-  right t := ⟨_, ⟨t, Bisimilar.refl _⟩⟩
-
-theorem BisimCond.symm (h: BisimCond p q): BisimCond q p where
-  left t := by
-    have ⟨_, ⟨t', h'⟩⟩ := h.right t
-    refine ⟨_, ⟨t', h'.symm⟩⟩
-
-  right t := by
-    have ⟨_, ⟨t', h'⟩⟩ := h.left t
-    refine ⟨_, ⟨t', h'.symm⟩⟩
-
-theorem show_cond: Bisimilar p q → BisimCond p q := by
-  intro ⟨sim, sym, coind_l, coind_r⟩
-  constructor
-  . intro _ _ t
-    let e: LTS.Edge _ := ⟨_, _, t⟩
-    exists (sim p e q)
+theorem bisim_cond_of_bisim: Bisimilar p q → BisimCond p q :=
+  fun ⟨r, ⟨h, sim⟩⟩ => by
     constructor
-    . exact (coind_l 1 e).left
-    . refine ⟨sim, sym, ?_, ?_⟩
-      . intro n
-        refine (coind_l n.succ e).right
-      . intro n
-        let e': LTS.Edge _ := ⟨_, _, (coind_l n.succ e).left⟩
-        have := sym e.prop e'.prop ▸ (coind_r n.succ e').right
-        exact this
-  . intro _ _ t
-    let e: LTS.Edge _ := ⟨_, _, t⟩
-    exists (sim q e p)
-    constructor
-    . exact (coind_r 1 e).left
-    . refine ⟨sim, sym, ?_, ?_⟩
-      . intro n
-        let e': LTS.Edge _ := ⟨_, _, (coind_r n.succ e).left⟩
-        have := sym e.prop e'.prop ▸ (coind_l n.succ e').right
-        exact this
-      . intro n
-        refine (coind_r n.succ e).right
+    . intro _ _ t
+      have ⟨q', ⟨_, _⟩⟩ := sim.left h t
+      refine ⟨q', ⟨‹_›, ?_⟩⟩
+      exists r
+    . intro _ _ t
+      have ⟨q', ⟨_, _⟩⟩ := sim.right h t
+      refine ⟨q', ⟨‹_›, ?_⟩⟩
+      exists r
 
-instance [Konst N K] : LTS (CCS N K) where
-  Act := Act N
-  transition := @Transition N K _
+theorem bisim_cond_l_sim: LeftSim (P:=P) BisimCond := fun h t =>
+  have ⟨q', ⟨_, _⟩⟩ := h.left t
+  ⟨q', ⟨‹_›, bisim_cond_of_bisim _ _ ‹_›⟩⟩
 
-noncomputable def sim [DecidableEq P] {p q: P} (h: BisimCond p q):
-  ∀(p': P), LTS.Edge p' → P → P := fun p ⟨a, p', t⟩ q =>
-    sorry
+theorem bisim_cond_r_sim: RightSim (P:=P) BisimCond := fun h t =>
+  have ⟨q', ⟨_, _⟩⟩ := h.right t
+  ⟨q', ⟨‹_›, bisim_cond_of_bisim _ _ ‹_›⟩⟩
 
-theorem sim_edge [DecidableEq P]: (t: LTS.transition p a p') →
-  LTS.transition q a (sim h _ ⟨_, _, t⟩ q) :=
-  sorry
-
-theorem sim_cond [DecidableEq P] (h: BisimCond p q)
-  (lp: {ps: LTS.Path p' // ps.orig = p})
-  (rp: {qs: LTS.Path q' // qs.orig = q}):
-  ∀n, Simulate p' q' (sim h) n := by
-  intro n; cases n; trivial
-  case succ n' =>
-    intro e
-    constructor
-    . apply sim_edge
-    . apply sim_cond
-      . refine ⟨LTS.Path.cons lp.val e rfl, lp.property⟩
-      . let e' : LTS.Edge _ := ⟨_, _, sim_edge (h:=h) p' q' e.prop⟩
-        refine ⟨LTS.Path.cons rp.val e' rfl, rp.property⟩
+theorem bisim_cond: Bisimilar p q ↔ BisimCond p q where
+  mp := bisim_cond_of_bisim _ _
+  mpr := fun _ => by
+    exists BisimCond
+    refine ⟨‹_›, ?_⟩
+    refine ⟨bisim_cond_l_sim, bisim_cond_r_sim⟩
