@@ -133,11 +133,11 @@ theorem sim_bisim: Bisimulation (Bisimilar (P:=P)) where
     refine ⟨_, ⟨t', ?_⟩⟩
     exists r
 
-structure BisimCond: Prop where
-  left: LTS.transition p a p' → ∃q', (LTS.transition q a q' ∧ Bisimilar p' q')
-  right: LTS.transition q a q' → ∃p', (LTS.transition p a p' ∧ Bisimilar p' q')
+structure BisimF (inner: P → P → Prop) (p q: P): Prop where
+  left: LTS.transition p a p' → ∃q', (LTS.transition q a q' ∧ inner p' q')
+  right: LTS.transition q a q' → ∃p', (LTS.transition p a p' ∧ inner p' q')
 
-theorem bisim_cond_of_bisim: Bisimilar p q → BisimCond p q :=
+theorem bisim_cond_of_bisim: Bisimilar p q → BisimF Bisimilar p q :=
   fun ⟨r, ⟨h, sim⟩⟩ => by
     constructor
     . intro _ _ t
@@ -149,17 +149,29 @@ theorem bisim_cond_of_bisim: Bisimilar p q → BisimCond p q :=
       refine ⟨q', ⟨‹_›, ?_⟩⟩
       exists r
 
-theorem bisim_cond_l_sim: LeftSim (P:=P) BisimCond := fun h t =>
+theorem bisim_cond_l_sim: LeftSim (P:=P) (BisimF Bisimilar) := fun h t =>
   have ⟨q', ⟨_, _⟩⟩ := h.left t
   ⟨q', ⟨‹_›, bisim_cond_of_bisim _ _ ‹_›⟩⟩
 
-theorem bisim_cond_r_sim: RightSim (P:=P) BisimCond := fun h t =>
+theorem bisim_cond_r_sim: RightSim (P:=P) (BisimF Bisimilar) := fun h t =>
   have ⟨q', ⟨_, _⟩⟩ := h.right t
   ⟨q', ⟨‹_›, bisim_cond_of_bisim _ _ ‹_›⟩⟩
 
-theorem bisim_cond: Bisimilar p q ↔ BisimCond p q where
+-- basically proves `Bisimilar` is a fix point of `BisimF`
+theorem bisim_cond: Bisimilar p q ↔ BisimF Bisimilar p q where
   mp := bisim_cond_of_bisim _ _
   mpr := fun _ => by
-    exists BisimCond
+    exists BisimF Bisimilar
     refine ⟨‹_›, ?_⟩
     refine ⟨bisim_cond_l_sim, bisim_cond_r_sim⟩
+
+theorem bisim_fix: Bisimilar = BisimF Bisimilar (P:=P) := by
+  funext
+  rw [bisim_cond]
+
+def InductiveProp (F: (α → α → Prop) → (α → α → Prop)): Nat → α → α → Prop
+| .zero => fun _ _ => True
+| (.succ n) => F (InductiveProp F n)
+
+-- basically Fix (BisimF)
+def BisimCondStrong (p q: P) := ∀n, InductiveProp BisimF n p q
