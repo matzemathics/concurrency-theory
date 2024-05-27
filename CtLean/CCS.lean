@@ -48,7 +48,7 @@ instance [Konst N K] : LTS (CCS N K) where
 
 variable [Konst N K] (p q: CCS N K)
 
-theorem bisim_choice: Bisimilar p q → Bisimilar p (CCS.choice p q) := by
+theorem eliminate_choice: Bisimilar p q → Bisimilar p (CCS.choice p q) := by
   intro h
   apply (bisim_cond _ _).mpr
   constructor
@@ -57,3 +57,12 @@ theorem bisim_choice: Bisimilar p q → Bisimilar p (CCS.choice p q) := by
   . intro _ p' t; cases t
     . refine ⟨p', ⟨‹_›, Bisimilar.refl _⟩⟩
     . apply ((bisim_cond _ _).mp h).right ‹_›
+
+theorem choice_commutative: Bisimilar (CCS.choice p q) (CCS.choice q p) := by
+  apply (bisim_cond _ _).mpr
+  constructor
+  repeat {
+    intro _ _; intro
+    | .SumL h => refine ⟨_, ⟨.SumR ‹_›, Bisimilar.refl _⟩⟩
+    | .SumR h => refine ⟨_, ⟨.SumL ‹_›, Bisimilar.refl _⟩⟩
+  }
