@@ -168,10 +168,3 @@ theorem bisim_cond: Bisimilar p q ↔ BisimF Bisimilar p q where
 theorem bisim_fix: Bisimilar = BisimF Bisimilar (P:=P) := by
   funext
   rw [bisim_cond]
-
-def InductiveProp (F: (α → α → Prop) → (α → α → Prop)): Nat → α → α → Prop
-| .zero => fun _ _ => True
-| (.succ n) => F (InductiveProp F n)
-
--- basically Fix (BisimF)
-def BisimCondStrong (p q: P) := ∀n, InductiveProp BisimF n p q
